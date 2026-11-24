@@ -1,11 +1,89 @@
-name: terraform-check
-on: [push, pull_request]
+name: terraform
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: terraform
+  cancel-in-progress: false
+
+env:
+  OVH_CLIENT_ID: ${{ secrets.OVH_CLIENT_ID }}
+  OVH_CLIENT_SECRET: ${{ secrets.OVH_CLIENT_SECRET }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
       - run: terraform fmt -check -recursive
       - run: terraform -chdir=core init -backend=false && terraform -chdir=core validate
       - run: terraform -chdir=workload init -backend=false && terraform -chdir=workload validate
+
+  detect:
+    needs: check
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: Plan both stacks and log the result
+        run: |
+          set +e
+          anydrift=0
+          : > /tmp/section.md
+          for dir in core workload; do
+            terraform -chdir=$dir init -input=false -no-color -backend-config=backend.hcl > /tmp/init-$dir.txt 2>&1
+            terraform -chdir=$dir plan -input=false -no-color -detailed-exitcode > /tmp/plan-$dir.txt 2>&1
+            code=$?
+            if [ $code -eq 0 ]; then
+              echo "- **$dir**: no changes" >> /tmp/section.md
+            else
+              anydrift=1
+              if [ $code -eq 2 ]; then
+                echo "- **$dir**: DRIFT OR PENDING CHANGES" >> /tmp/section.md
+                { echo '```'; sed -n '/Terraform will perform/,$p' /tmp/plan-$dir.txt | head -150; echo '```'; } >> /tmp/section.md
+              else
+                echo "- **$dir**: ERROR" >> /tmp/section.md
+                { echo '```'; tail -30 /tmp/plan-$dir.txt; echo '```'; } >> /tmp/section.md
+              fi
+            fi
+          done
+          if [ "$GITHUB_EVENT_NAME" = "push" ] || [ $anydrift -eq 1 ]; then
+            { echo; echo "## $(date -u '+%Y-%m-%d %H:%M UTC') - $GITHUB_EVENT_NAME ${GITHUB_SHA::7}"; cat /tmp/section.md; } >> DRIFT-REPORT.md
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add DRIFT-REPORT.md
+            git commit -m "Drift report $(date -u +%H:%M)"
+            git pull --rebase
+            git push
+          fi
+
+  apply:
+    needs: detect
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - run: |
+          terraform -chdir=core init -input=false -backend-config=backend.hcl
+          terraform -chdir=core apply -input=false -auto-approve
+          terraform -chdir=workload init -input=false -backend-config=backend.hcl
+          terraform -chdir=workload apply -input=false -auto-approve
