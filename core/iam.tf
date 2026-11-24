@@ -1,5 +1,5 @@
 # Least-privilege identity used by workloads on the cluster to access the
-# scrolls bucket. It can read and write objects in that one bucket only.
+# scrolls bucket. It can read and write objects in that one bucket only
 
 resource "ovh_cloud_project_user" "scrolls_app" {
   service_name = var.service_name

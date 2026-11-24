@@ -5,7 +5,7 @@ locals {
     managed-by  = "terraform"
   }
 
-  # Bucket names are shared across all OVHcloud customers in a region,
+  # Bucket names are shared across all ovhcloud customers in a region,
   # so include part of the project ID to keep them unique.
   bucket_name = "${var.name_prefix}-${substr(var.service_name, 0, 8)}-scrolls"
 }
