@@ -1,0 +1,11 @@
+name: terraform-check
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform fmt -check -recursive
+      - run: terraform -chdir=core init -backend=false && terraform -chdir=core validate
+      - run: terraform -chdir=workload init -backend=false && terraform -chdir=workload validate
