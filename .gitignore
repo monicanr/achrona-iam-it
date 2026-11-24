@@ -1,0 +1,11 @@
+# Secrets: S3 key for the state bucket, the team's OVHcloud service account.
+state-credentials.env
+ovh-credentials.env
+
+# Output of scripts/deploy-all.sh
+deploy.log
+
+.terraform/
+*.tfstate
+*.tfstate.backup
+.DS_Store
